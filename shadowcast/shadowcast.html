@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shadowcast</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #121212;
+    }
+
+    #gui {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(33, 33, 33, 0.95);
+      padding: 20px;
+      border-radius: 8px;
+      width: 300px;
+      color: #fff;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+      z-index: 10;
+    }
+
+    .control-group {
+      margin-bottom: 10px;
+    }
+
+    .range-field {
+      margin: 2px 0;
+    }
+
+    /* Custom styling for range inputs */
+    input[type="range"] {
+      border: none;
+      margin: 12px 0;
+    }
+
+    /* Custom styling for labels */
+    .input-field > label {
+      color: #fff;
+    }
+
+    /* Custom styling for checkboxes */
+    [type="checkbox"]+span:not(.lever) {
+      color: #fff;
+    }
+
+    /* Custom styling for the container */
+    #mapContainer {
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* Material design switch colors */
+    .switch label input[type=checkbox]:checked+.lever {
+      background-color: #4CAF50;
+    }
+
+    .switch label input[type=checkbox]:checked+.lever:after {
+      background-color: #81C784;
+    }
+
+    /* Slider colors */
+    input[type=range]::-webkit-slider-thumb {
+      background-color: #4CAF50;
+    }
+
+    input[type=range]::-moz-range-thumb {
+      background-color: #4CAF50;
+    }
+
+    input[type=range]::-ms-thumb {
+      background-color: #4CAF50;
+    }
+
+    /* Control panel title */
+    .control-title {
+      font-size: 1.2rem;
+      margin-bottom: 15px;
+      color: #4CAF50;
+      font-weight: 500;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="gui" class="z-depth-3">
+    <div class="control-title">Map Controls</div>
+    
+    <div class="control-group">
+      <div class="switch">
+        <label>
+          Perspective
+          <input type="checkbox" id="cameraToggle" checked>
+          <span class="lever"></span>
+          Orthographic
+        </label>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Light Azimuth</label>
+      <p class="range-field">
+        <input type="range" id="azimuthRange" min="0" max="360" step="1" value="265" />
+      </p>
+    </div>
+
+    <div class="control-group">
+      <label>Light Altitude</label>
+      <p class="range-field">
+        <input type="range" id="altitudeRange" min="1" max="90" step="1" value="45" />
+      </p>
+    </div>
+
+    <div class="control-group">
+      <label>Shadow Softness</label>
+      <p class="range-field">
+        <input type="range" id="softnessRange" min="1" max="30" step="0.1" value="10" />
+      </p>
+    </div>
+
+    <div class="control-group">
+      <label>Light Intensity</label>
+      <p class="range-field">
+        <input type="range" id="intensityRange" min="0" max="2" step="0.1" value="1" />
+      </p>
+    </div>
+  </div>
+
+  <div id="mapContainer"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/controls/OrbitControls.js';
+
+ // -----------------------------------------------------------------------
+    // Overpass API: single-line query
+    // We ask for ways with "building" tag around lat=40.741, lon=-73.989 (1km).
+    // We retrieve geometry (footprints), plus any tag that might include height.
+    // -----------------------------------------------------------------------
+    const overpassQuery = `
+[out:json][timeout:25];
+(
+  way["building"](poly:"40.6969816 -74.0182391 40.7105261 -74.0241545 40.7362457 -74.019081 40.7702061 -74.0034757 40.8511441 -73.9495641 40.8789637 -73.9271937 40.8760198 -73.9206882 40.8733062 -73.910432 40.8688373 -73.910121 40.8575798 -73.9199358 40.8455149 -73.9286009 40.8342199 -73.9344064 40.8260852 -73.9334609 40.8090885 -73.9334609 40.8017707 -73.9281065 40.7952403 -73.9281065 40.7912992 -73.9330147 40.7819523 -73.9407489 40.7751947 -73.9404514 40.7492841 -73.964695 40.7406074 -73.9673722 40.7241525 -73.9678184 40.7168253 -73.9707931 40.7125414 -73.9734703 40.7090464 -73.976445 40.7080317 -73.9812045 40.7076934 -73.9886411 40.7062277 -73.996524 40.698222 -74.0078278 40.6969816 -74.0182391");
+  node(w)->.x;
+  <;
+);
+out tags geom;
+    `;
+
+    // Build URL with the query (URL-encoded)
+    const overpassUrl =
+      'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(overpassQuery);
+
+    // Fetch building data via GET
+    async function fetchBuildingData() {
+      const response = await fetch(overpassUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch building data');
+      }
+      const data = await response.json();
+      return data;
+    }
+
+    // Simple lat-lon to XY conversion (for demonstration only).
+    // For real apps, consider a more accurate projection, e.g. proj4.
+    function latLonToXY(lat, lon, originLat, originLon) {
+      const R = 6378137; // Earth radius in meters
+      const dLat = THREE.MathUtils.degToRad(lat - originLat);
+      const dLon = THREE.MathUtils.degToRad(lon - originLon);
+      const x = dLon * R * Math.cos(THREE.MathUtils.degToRad(originLat));
+      const y = dLat * R;
+      return new THREE.Vector2(x, y);
+    }
+
+
+    // Three.js setup with both camera types
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.VSMShadowMap;
+    document.getElementById('mapContainer').appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x121212);
+    scene.fog = new THREE.FogExp2(0x121212, 0.0001);
+
+    // Create both camera types
+    const perspectiveCamera = new THREE.PerspectiveCamera(
+      45,
+      window.innerWidth / window.innerHeight,
+      1,
+      100000
+    );
+    
+    const frustumSize = 3000;
+    const aspect = window.innerWidth / window.innerHeight;
+    const orthographicCamera = new THREE.OrthographicCamera(
+      frustumSize * aspect / -2,
+      frustumSize * aspect / 2,
+      frustumSize / 2,
+      frustumSize / -2,
+      -10000,
+      100000
+    );
+
+    // Set initial camera positions
+    perspectiveCamera.position.set(0, -1500*3, 3*1000);
+    orthographicCamera.position.set(0, -1500, 1000);
+
+    // Start with orthographic camera
+    let currentCamera = orthographicCamera;
+
+    // Orbit Controls
+    let controls = new OrbitControls(currentCamera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.update();
+
+    // Lights setup
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(3000, 3000, 3000);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 4096;
+    directionalLight.shadow.mapSize.height = 4096;
+    directionalLight.shadow.camera.near = 1;
+    directionalLight.shadow.camera.far = 30000;
+    directionalLight.shadow.camera.left = -15000;
+    directionalLight.shadow.camera.right = 15000;
+    directionalLight.shadow.camera.top = 15000;
+    directionalLight.shadow.camera.bottom = -15000;
+    directionalLight.shadow.radius = 2;
+    scene.add(directionalLight);
+
+    const ambientLight = new THREE.AmbientLight(0x444444);
+    scene.add(ambientLight);
+
+    // Ground plane
+    const floorGeometry = new THREE.PlaneGeometry(50000, 50000);
+    const floorMaterial = new THREE.MeshLambertMaterial({ color: 0xdddddd  });
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.position.y = 0;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // UI Controls
+    const cameraToggle = document.getElementById('cameraToggle');
+    const azimuthRange = document.getElementById('azimuthRange');
+    const altitudeRange = document.getElementById('altitudeRange');
+    const softnessRange = document.getElementById('softnessRange');
+    const intensityRange = document.getElementById('intensityRange');
+
+    // Camera toggle handler
+    cameraToggle.addEventListener('change', () => {
+      currentCamera = cameraToggle.checked ? orthographicCamera : perspectiveCamera;
+      controls.dispose();
+      controls = new OrbitControls(currentCamera, renderer.domElement);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    });
+
+    function updateLight() {
+      const azimuth = THREE.MathUtils.degToRad(parseFloat(azimuthRange.value));
+      const altitude = THREE.MathUtils.degToRad(parseFloat(altitudeRange.value));
+      const radius = 10000;
+      
+      const x = radius * Math.cos(altitude) * Math.cos(azimuth);
+      const y = radius * Math.cos(altitude) * Math.sin(azimuth);
+      const z = radius * Math.sin(altitude);
+      
+      directionalLight.position.set(x, y, z);
+      directionalLight.shadow.radius = parseFloat(softnessRange.value);
+      directionalLight.intensity = parseFloat(intensityRange.value);
+    }
+
+    // Add listeners for all controls
+    azimuthRange.addEventListener('input', updateLight);
+    altitudeRange.addEventListener('input', updateLight);
+    softnessRange.addEventListener('input', updateLight);
+    intensityRange.addEventListener('input', updateLight);
+    
+    // Initial light update
+    updateLight();
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, currentCamera);
+    }
+    animate();
+
+    // Responsive handling
+    window.addEventListener('resize', () => {
+      const aspect = window.innerWidth / window.innerHeight;
+      
+      // Update perspective camera
+      perspectiveCamera.aspect = aspect;
+      perspectiveCamera.updateProjectionMatrix();
+      
+      // Update orthographic camera
+      const frustumSize = 3000;
+      orthographicCamera.left = -frustumSize * aspect / 2;
+      orthographicCamera.right = frustumSize * aspect / 2;
+      orthographicCamera.top = frustumSize / 2;
+      orthographicCamera.bottom = -frustumSize / 2;
+      orthographicCamera.updateProjectionMatrix();
+      
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Initialize with the same Overpass query and building creation logic
+    const originLat = 40.741;
+    const originLon = -73.989;
+    
+    async function init() {
+      try {
+        const osmData = await fetchBuildingData();
+        const ways = osmData.elements.filter(el => el.type === 'way' && el.geometry);
+
+        ways.forEach(way => {
+          const coords = way.geometry.map(pt =>
+            latLonToXY(pt.lat, pt.lon, originLat, originLon)
+          );
+          if (coords.length < 3) return; // skip invalid polygons
+
+          // Create a Shape from building footprint
+          const shape = new THREE.Shape();
+          shape.moveTo(coords[0].x, coords[0].y);
+          for (let i = 1; i < coords.length; i++) {
+            shape.lineTo(coords[i].x, coords[i].y);
+          }
+          // Close the polygon
+          shape.lineTo(coords[0].x, coords[0].y);
+
+          // Use real building height if available
+          let heightMeters = 10; // fallback if no data
+          if (way.tags) {
+            // If a numeric 'height' is present, parse it
+            if (way.tags.height) {
+              // Some OSM heights have 'm' or other suffix. Strip that out if present.
+              const parsed = parseFloat(way.tags.height);
+              if (!isNaN(parsed)) heightMeters = parsed;
+            }
+            // If no 'height' but there's 'building:levels', assume ~3m per level
+            else if (way.tags['building:levels']) {
+              const levels = parseInt(way.tags['building:levels']);
+              if (!isNaN(levels)) heightMeters = levels * 3;
+            }
+          }
+
+          // Extrude from 0 up to 'heightMeters'
+          const extrudeSettings = {
+            depth: heightMeters,
+            bevelEnabled: false,
+          };
+          const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+          const material = new THREE.MeshPhongMaterial({ color: 0xdddddd });
+          const mesh = new THREE.Mesh(geometry, material);
+          geometry.translate(0, 0, 0);
+
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          scene.add(mesh);
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
