@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/mkturkcan/Shadowcast/blob/main/assets/logo.png?raw=true" />
+  <img src="https://github.com/mkturkcan/Shadowcast/blob/main/assets/logo.png?raw=true"  width="256" />
 </p>
 
 # Shadowcast
