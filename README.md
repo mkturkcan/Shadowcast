@@ -7,7 +7,7 @@
 A real-time 3D visualization of building footprints with dynamic shadow studies. Built with Three.js and OpenStreetMap data. Supports any city.
 
 <p align="center">
-  <img src="https://github.com/mkturkcan/Shadowcast/blob/main/assets/example.png?raw=true" />
+  <img src="https://github.com/mkturkcan/Shadowcast/blob/main/assets/example.png?raw=true" width="512" />
 </p>
 
 ## Features
